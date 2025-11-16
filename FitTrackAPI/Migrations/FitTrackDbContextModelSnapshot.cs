@@ -43,8 +43,9 @@ namespace FitTrackAPI.Migrations
                     b.Property<int?>("TrainingPlanId")
                         .HasColumnType("integer");
 
-                    b.Property<int>("UserId")
-                        .HasColumnType("integer");
+                    b.Property<string>("Username")
+                        .IsRequired()
+                        .HasColumnType("text");
 
                     b.Property<int?>("WorkoutId")
                         .HasColumnType("integer");
@@ -55,7 +56,7 @@ namespace FitTrackAPI.Migrations
 
                     b.HasIndex("TrainingPlanId");
 
-                    b.HasIndex("UserId");
+                    b.HasIndex("Username");
 
                     b.HasIndex("WorkoutId");
 
@@ -95,10 +96,16 @@ namespace FitTrackAPI.Migrations
                     b.Property<int>("Sets")
                         .HasColumnType("integer");
 
+                    b.Property<string>("Username")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<double>("Weight")
                         .HasColumnType("double precision");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("Username");
 
                     b.ToTable("Exercises");
                 });
@@ -128,23 +135,21 @@ namespace FitTrackAPI.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<int>("UserId")
-                        .HasColumnType("integer");
+                    b.Property<string>("Username")
+                        .IsRequired()
+                        .HasColumnType("text");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("UserId");
+                    b.HasIndex("Username");
 
                     b.ToTable("TrainingPlans");
                 });
 
             modelBuilder.Entity("FitTrackAPI.Models.User", b =>
                 {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+                    b.Property<string>("Username")
+                        .HasColumnType("text");
 
                     b.Property<string>("FullName")
                         .IsRequired()
@@ -154,14 +159,16 @@ namespace FitTrackAPI.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("RefreshToken")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("RefreshTokenExpiryTime")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<int>("Role")
                         .HasColumnType("integer");
 
-                    b.Property<string>("Username")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.HasKey("Id");
+                    b.HasKey("Username");
 
                     b.ToTable("Users");
                 });
@@ -187,7 +194,13 @@ namespace FitTrackAPI.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("Username")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.HasKey("Id");
+
+                    b.HasIndex("Username");
 
                     b.ToTable("Workouts");
                 });
@@ -206,23 +219,41 @@ namespace FitTrackAPI.Migrations
                     b.Property<int>("TrainingPlanId")
                         .HasColumnType("integer");
 
-                    b.Property<int>("UserId")
-                        .HasColumnType("integer");
+                    b.Property<string>("Username")
+                        .IsRequired()
+                        .HasColumnType("text");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("Username");
 
                     b.ToTable("Ratings");
                 });
 
+            modelBuilder.Entity("TrainerClients", b =>
+                {
+                    b.Property<string>("TrainerUsername")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ClientUsername")
+                        .HasColumnType("text");
+
+                    b.HasKey("TrainerUsername", "ClientUsername");
+
+                    b.HasIndex("ClientUsername");
+
+                    b.ToTable("TrainerClients");
+                });
+
             modelBuilder.Entity("TrainingPlanUser", b =>
                 {
-                    b.Property<int>("SavedByUsersId")
-                        .HasColumnType("integer");
+                    b.Property<string>("SavedByUsersUsername")
+                        .HasColumnType("text");
 
                     b.Property<int>("SavedPlansId")
                         .HasColumnType("integer");
 
-                    b.HasKey("SavedByUsersId", "SavedPlansId");
+                    b.HasKey("SavedByUsersUsername", "SavedPlansId");
 
                     b.HasIndex("SavedPlansId");
 
@@ -244,21 +275,6 @@ namespace FitTrackAPI.Migrations
                     b.ToTable("TrainingPlanWorkouts", (string)null);
                 });
 
-            modelBuilder.Entity("UserUser", b =>
-                {
-                    b.Property<int>("ClientsId")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("UserId")
-                        .HasColumnType("integer");
-
-                    b.HasKey("ClientsId", "UserId");
-
-                    b.HasIndex("UserId");
-
-                    b.ToTable("TrainerClients", (string)null);
-                });
-
             modelBuilder.Entity("Comment", b =>
                 {
                     b.HasOne("FitTrackAPI.Models.Exercise", "Exercise")
@@ -271,8 +287,8 @@ namespace FitTrackAPI.Migrations
 
                     b.HasOne("FitTrackAPI.Models.User", "User")
                         .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasForeignKey("Username")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("FitTrackAPI.Models.Workout", "Workout")
@@ -303,22 +319,70 @@ namespace FitTrackAPI.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("FitTrackAPI.Models.TrainingPlan", b =>
+            modelBuilder.Entity("FitTrackAPI.Models.Exercise", b =>
                 {
                     b.HasOne("FitTrackAPI.Models.User", "User")
-                        .WithMany("TrainingPlans")
-                        .HasForeignKey("UserId")
+                        .WithMany()
+                        .HasForeignKey("Username")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("FitTrackAPI.Models.TrainingPlan", b =>
+                {
+                    b.HasOne("FitTrackAPI.Models.User", "User")
+                        .WithMany("TrainingPlans")
+                        .HasForeignKey("Username")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("FitTrackAPI.Models.Workout", b =>
+                {
+                    b.HasOne("FitTrackAPI.Models.User", "User")
+                        .WithMany()
+                        .HasForeignKey("Username")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Rating", b =>
+                {
+                    b.HasOne("FitTrackAPI.Models.User", "User")
+                        .WithMany()
+                        .HasForeignKey("Username")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("TrainerClients", b =>
+                {
+                    b.HasOne("FitTrackAPI.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("ClientUsername")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("FitTrackAPI.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("TrainerUsername")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("TrainingPlanUser", b =>
                 {
                     b.HasOne("FitTrackAPI.Models.User", null)
                         .WithMany()
-                        .HasForeignKey("SavedByUsersId")
+                        .HasForeignKey("SavedByUsersUsername")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
@@ -340,21 +404,6 @@ namespace FitTrackAPI.Migrations
                     b.HasOne("FitTrackAPI.Models.Workout", null)
                         .WithMany()
                         .HasForeignKey("WorkoutsId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("UserUser", b =>
-                {
-                    b.HasOne("FitTrackAPI.Models.User", null)
-                        .WithMany()
-                        .HasForeignKey("ClientsId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("FitTrackAPI.Models.User", null)
-                        .WithMany()
-                        .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "C:\\Users\\rugil\\Desktop\\Universitetas\\7 semestras\\Saityno taikomųjų programų projektavimas\\1 lab\\FitTrackAPI\\FitTrackAPI.csproj": {}
+    "C:\\Users\\rugil\\Documents\\GitHub\\STPP-FitTrack\\FitTrackAPI\\FitTrackAPI.csproj": {}
   },
   "projects": {
-    "C:\\Users\\rugil\\Desktop\\Universitetas\\7 semestras\\Saityno taikomųjų programų projektavimas\\1 lab\\FitTrackAPI\\FitTrackAPI.csproj": {
+    "C:\\Users\\rugil\\Documents\\GitHub\\STPP-FitTrack\\FitTrackAPI\\FitTrackAPI.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\rugil\\Desktop\\Universitetas\\7 semestras\\Saityno taikomųjų programų projektavimas\\1 lab\\FitTrackAPI\\FitTrackAPI.csproj",
+        "projectUniqueName": "C:\\Users\\rugil\\Documents\\GitHub\\STPP-FitTrack\\FitTrackAPI\\FitTrackAPI.csproj",
         "projectName": "FitTrackAPI",
-        "projectPath": "C:\\Users\\rugil\\Desktop\\Universitetas\\7 semestras\\Saityno taikomųjų programų projektavimas\\1 lab\\FitTrackAPI\\FitTrackAPI.csproj",
+        "projectPath": "C:\\Users\\rugil\\Documents\\GitHub\\STPP-FitTrack\\FitTrackAPI\\FitTrackAPI.csproj",
         "packagesPath": "C:\\Users\\rugil\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\rugil\\Desktop\\Universitetas\\7 semestras\\Saityno taikomųjų programų projektavimas\\1 lab\\FitTrackAPI\\obj\\",
+        "outputPath": "C:\\Users\\rugil\\Documents\\GitHub\\STPP-FitTrack\\FitTrackAPI\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages",
@@ -57,6 +57,10 @@
               "target": "Package",
               "version": "[9.0.9, )"
             },
+            "Microsoft.AspNetCore.Identity": {
+              "target": "Package",
+              "version": "[2.3.1, )"
+            },
             "Microsoft.AspNetCore.OpenApi": {
               "target": "Package",
               "version": "[9.0.7, )"
@@ -66,6 +70,10 @@
               "suppressParent": "All",
               "target": "Package",
               "version": "[9.0.9, )"
+            },
+            "Microsoft.EntityFrameworkCore.InMemory": {
+              "target": "Package",
+              "version": "[9.0.0, )"
             },
             "Npgsql.EntityFrameworkCore.PostgreSQL": {
               "target": "Package",

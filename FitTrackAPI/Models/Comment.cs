@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations.Schema;
 using FitTrackAPI.Models;
 
 public class Comment
@@ -7,7 +8,8 @@ public class Comment
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
-    public int UserId { get; set; }
+    [ForeignKey(nameof(User))]
+    public required string Username { get; set; }
     public User? User { get; set; }
 
     public int? TrainingPlanId { get; set; }

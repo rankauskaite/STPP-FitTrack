@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations.Schema;
 using System.Text.Json.Serialization;
 
 namespace FitTrackAPI.Models
@@ -9,6 +10,10 @@ namespace FitTrackAPI.Models
         public int Sets { get; set; }
         public int Reps { get; set; }
         public double Weight { get; set; }
+        
+        [ForeignKey(nameof(User))]
+        public required string Username { get; set; }
+        public User? User { get; set; }
 
         [JsonIgnore]
         public ICollection<Workout> Workouts { get; set; } = new List<Workout>();

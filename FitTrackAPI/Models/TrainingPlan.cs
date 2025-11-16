@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations.Schema;
 using System.Text.Json.Serialization;
 
 namespace FitTrackAPI.Models
@@ -12,7 +13,8 @@ namespace FitTrackAPI.Models
         public bool IsApproved { get; set; }
 
         // Owner
-        public int UserId { get; set; }
+        [ForeignKey(nameof(User))]
+        public required string Username { get; set; }
         public User? User { get; set; }
 
         [JsonIgnore]

@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
 
 namespace FitTrackAPI.Models
@@ -6,12 +7,16 @@ namespace FitTrackAPI.Models
 
     public class User
     {
-        public int Id { get; set; }
+        [Key]
         public string Username { get; set; } = null!;
         public string FullName { get; set; } = null!;
         public string Password { get; set; } = string.Empty; // paprastai, be hash
         public Role Role { get; set; }
 
+        // JWT Refresh token support
+        public string? RefreshToken { get; set; }
+        public DateTime? RefreshTokenExpiryTime { get; set; }
+        
         [JsonIgnore]
         public ICollection<TrainingPlan> TrainingPlans { get; set; } = new List<TrainingPlan>();
         [JsonIgnore]

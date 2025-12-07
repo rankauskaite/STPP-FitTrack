@@ -53,7 +53,8 @@ builder.Services.AddCors(options =>
         policy
             .AllowAnyHeader()
             .AllowAnyMethod()
-            .WithOrigins("http://localhost:3000"); // UI adresas
+            .WithOrigins("https://fit-track-delta.vercel.app"); // Azure UI adresas
+            //.WithOrigins("http://localhost:3000"); // UI adresas
     });
 });
 
@@ -133,8 +134,8 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<FitTrackDbContext>();
-    db.Database.EnsureCreated();
-    DbSeeder.Seed(db);
+    // db.Database.EnsureCreated();
+    // DbSeeder.Seed(db);
 }
 
 // ---------------------------------------------

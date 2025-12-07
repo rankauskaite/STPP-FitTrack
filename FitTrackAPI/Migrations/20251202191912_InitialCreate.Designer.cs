@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace FitTrackAPI.Migrations
 {
     [DbContext(typeof(FitTrackDbContext))]
-    [Migration("20251116165127_InitialCreate")]
+    [Migration("20251202191912_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -124,6 +124,9 @@ namespace FitTrackAPI.Migrations
                     b.Property<int>("DurationWeeks")
                         .HasColumnType("integer");
 
+                    b.Property<string>("ImageUrl")
+                        .HasColumnType("text");
+
                     b.Property<bool>("IsApproved")
                         .HasColumnType("boolean");
 
@@ -193,9 +196,15 @@ namespace FitTrackAPI.Migrations
                     b.Property<int>("DurationMinutes")
                         .HasColumnType("integer");
 
-                    b.Property<string>("Type")
+                    b.Property<string>("ImageUrl")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<int>("Type")
+                        .HasColumnType("integer");
 
                     b.Property<string>("Username")
                         .IsRequired()

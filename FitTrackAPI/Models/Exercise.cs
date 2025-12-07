@@ -10,7 +10,10 @@ namespace FitTrackAPI.Models
         public int Sets { get; set; }
         public int Reps { get; set; }
         public double Weight { get; set; }
-        
+        public string? ImageUrl { get; set; }
+        public int? ExerciseTemplateId { get; set; }
+        public ExerciseTemplate? ExerciseTemplate { get; set; }
+
         [ForeignKey(nameof(User))]
         public required string Username { get; set; }
         public User? User { get; set; }

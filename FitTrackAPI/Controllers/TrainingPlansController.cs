@@ -7,6 +7,22 @@ using System.Security.Claims;
 
 namespace FitTrackAPI.Controllers
 {
+    public class CreateTrainingPlanRequest
+    {
+        public string Name { get; set; } = null!;
+        public int DurationWeeks { get; set; }
+        public string Type { get; set; } = null!;
+        public bool IsPublic { get; set; }
+    }
+
+    public class UpdateTrainingPlanRequest
+    {
+        public string Name { get; set; } = null!;
+        public int DurationWeeks { get; set; }
+        public string Type { get; set; } = null!;
+        public bool IsPublic { get; set; }
+    }
+
     [ApiController]
     [Route("api/[controller]")]
     public class TrainingPlansController : ControllerBase
@@ -21,7 +37,8 @@ namespace FitTrackAPI.Controllers
         // -------------------- Pagalbiniai metodai --------------------
         private string? GetCurrentUsername()
         {
-            return User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            return User.FindFirst("username")?.Value
+                ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value
                 ?? User.FindFirst("unique_name")?.Value
                 ?? User.FindFirst("sub")?.Value;
         }
@@ -30,9 +47,18 @@ namespace FitTrackAPI.Controllers
         private bool IsAdmin() => GetCurrentUserRole() == "Admin";
         private bool IsTrainer() => GetCurrentUserRole() == "Trainer";
 
+        // 🔹 NAUJA: grąžina prisijungusį user su Clients
+        private async Task<User?> GetCurrentUserWithClients()
+        {
+            var username = GetCurrentUsername();
+            if (username == null) return null;
+
+            return await _context.Users
+                .Include(u => u.Clients)
+                .FirstOrDefaultAsync(u => u.Username == username);
+        }
 
         // -------------------- GET: api/trainingplans --------------------
-        // Svečias mato tik trenerių viešus planus
         [AllowAnonymous]
         [HttpGet]
         public async Task<ActionResult<IEnumerable<TrainingPlan>>> GetAll()
@@ -46,21 +72,40 @@ namespace FitTrackAPI.Controllers
             var isAuthenticated = User?.Identity?.IsAuthenticated ?? false;
             var username = GetCurrentUsername();
 
+            // Svečias – tik trenerių vieši planai
             if (!isAuthenticated)
-                return await query.Where(tp => tp.IsPublic && tp.User != null && tp.User.Role == Role.Trainer).ToListAsync();
+            {
+                return await query
+                    .Where(tp => tp.IsPublic && tp.User != null && tp.User.Role == Role.Trainer)
+                    .ToListAsync();
+            }
 
             if (IsAdmin())
                 return await query.ToListAsync();
 
             if (IsTrainer())
-                return await query.Where(tp =>
-                    tp.IsPublic || tp.Username == username || (tp.User != null && tp.User.Role == Role.Trainer)).ToListAsync();
+            {
+                var currentUser = await GetCurrentUserWithClients();
+                var clientUsernames = currentUser?.Clients.Select(c => c.Username).ToList()
+                                      ?? new List<string>();
+
+                return await query
+                    .Where(tp =>
+                        // savo planai
+                        tp.Username == username
+                        // kitų trenerių vieši planai
+                        || (tp.IsPublic && tp.User != null && tp.User.Role == Role.Trainer)
+                        // savo klientų planai
+                        || clientUsernames.Contains(tp.Username))
+                    .ToListAsync();
+            }
 
             // Member – savo + trenerių vieši planai
             return await query.Where(tp =>
-                tp.Username == username || (tp.IsPublic && tp.User != null && tp.User.Role == Role.Trainer)).ToListAsync();
+                tp.Username == username
+                || (tp.IsPublic && tp.User != null && tp.User.Role == Role.Trainer))
+                .ToListAsync();
         }
-
 
         // -------------------- GET: api/trainingplans/{id} --------------------
         [AllowAnonymous]
@@ -79,6 +124,7 @@ namespace FitTrackAPI.Controllers
             var isAuthenticated = User?.Identity?.IsAuthenticated ?? false;
             var username = GetCurrentUsername();
 
+            // Viešas trenerio planas – matomas visiems
             if (plan.IsPublic && plan.User != null && plan.User.Role == Role.Trainer)
                 return Ok(plan);
 
@@ -88,27 +134,48 @@ namespace FitTrackAPI.Controllers
             if (IsAdmin())
                 return Ok(plan);
 
+            // savas planas
             if (plan.Username == username)
                 return Ok(plan);
 
+            // jei treneris – tikriname ar planas priklauso jo klientui
+            if (IsTrainer())
+            {
+                var currentUser = await GetCurrentUserWithClients();
+                if (currentUser != null &&
+                    currentUser.Clients.Any(c => c.Username == plan.Username))
+                {
+                    return Ok(plan);
+                }
+            }
+
+            // jei dar kartą: viešas trenerio planas (saugumo sumetimais)
             if (plan.IsPublic && plan.User != null && plan.User.Role == Role.Trainer)
                 return Ok(plan);
 
             return Forbid();
         }
 
-
         // -------------------- POST: api/trainingplans --------------------
         [Authorize]
         [HttpPost]
-        public async Task<ActionResult<TrainingPlan>> Create([FromBody] TrainingPlan plan, [FromQuery] List<int>? workoutIds)
+        public async Task<ActionResult<TrainingPlan>> Create(
+            [FromBody] CreateTrainingPlanRequest request,
+            [FromQuery] List<int>? workoutIds)
         {
             var username = GetCurrentUsername();
             if (username == null)
                 return Unauthorized("Vartotojas neautentifikuotas.");
 
-            plan.Username = username;
-            plan.Workouts = new List<Workout>();
+            var plan = new TrainingPlan
+            {
+                Name = request.Name,
+                DurationWeeks = request.DurationWeeks,
+                Type = request.Type,
+                IsPublic = request.IsPublic,
+                Username = username,
+                Workouts = new List<Workout>()
+            };
 
             if (workoutIds != null)
             {
@@ -126,19 +193,17 @@ namespace FitTrackAPI.Controllers
             return CreatedAtAction(nameof(Get), new { id = plan.Id }, plan);
         }
 
-
         // -------------------- PUT: api/trainingplans/{id} --------------------
-        // Redaguoti gali tik savus planus (admin – tik savo)
         [Authorize]
         [HttpPut("{id}")]
-        public async Task<IActionResult> Update(int id, [FromBody] TrainingPlan updatedPlan, [FromQuery] List<int>? workoutIds)
+        public async Task<IActionResult> Update(
+            int id,
+            [FromBody] UpdateTrainingPlanRequest request,
+            [FromQuery] List<int>? workoutIds)
         {
-            if (id != updatedPlan.Id)
-                return BadRequest("ID neatitinka esamo plano.");
-
             var existing = await _context.TrainingPlans
-                                         .Include(tp => tp.Workouts)
-                                         .FirstOrDefaultAsync(tp => tp.Id == id);
+                                        .Include(tp => tp.Workouts)
+                                        .FirstOrDefaultAsync(tp => tp.Id == id);
 
             if (existing == null)
                 return NotFound("Planas nerastas.");
@@ -152,16 +217,16 @@ namespace FitTrackAPI.Controllers
             if (IsAdmin() && existing.Username != username)
                 return Forbid();
 
-            existing.Name = updatedPlan.Name;
-            existing.DurationWeeks = updatedPlan.DurationWeeks;
-            existing.Type = updatedPlan.Type;
-            existing.IsPublic = updatedPlan.IsPublic;
+            existing.Name = request.Name;
+            existing.DurationWeeks = request.DurationWeeks;
+            existing.Type = request.Type;
+            existing.IsPublic = request.IsPublic;
 
             if (workoutIds != null)
             {
                 var workouts = await _context.Workouts
-                                             .Where(w => workoutIds.Contains(w.Id))
-                                             .ToListAsync();
+                                            .Where(w => workoutIds.Contains(w.Id))
+                                            .ToListAsync();
 
                 existing.Workouts.Clear();
                 foreach (var w in workouts)
@@ -171,7 +236,6 @@ namespace FitTrackAPI.Controllers
             await _context.SaveChangesAsync();
             return Ok(existing);
         }
-
 
         // -------------------- DELETE: api/trainingplans/{id} --------------------
         [Authorize]
@@ -202,9 +266,8 @@ namespace FitTrackAPI.Controllers
             return NoContent();
         }
 
-
         // -------------------- GET: api/trainingplans/{id}/workouts --------------------
-        // Gali matyti savo ar trenerių planų treniruotes
+        // DABAR: savininkas, admin ir treneris, jei planas priklauso jo klientui
         [Authorize]
         [HttpGet("{id}/workouts")]
         public async Task<ActionResult<IEnumerable<Workout>>> GetWorkouts(int id)
@@ -222,15 +285,31 @@ namespace FitTrackAPI.Controllers
             if (plan == null)
                 return NotFound("Planas nerastas.");
 
-            if (plan.Username != username && !IsAdmin() && plan.User?.Role != Role.Trainer)
-                return Forbid();
+            if (IsAdmin())
+                return Ok(plan.Workouts);
 
-            return Ok(plan.Workouts);
+            // savininkas
+            if (plan.Username == username)
+                return Ok(plan.Workouts);
+
+            if (IsTrainer())
+            {
+                var currentUser = await GetCurrentUserWithClients();
+                if (currentUser != null &&
+                    currentUser.Clients.Any(c => c.Username == plan.Username))
+                {
+                    return Ok(plan.Workouts);
+                }
+            }
+
+            // papildomai leisk trenerio viešiems planams (jei norisi)
+            if (plan.IsPublic && plan.User != null && plan.User.Role == Role.Trainer)
+                return Ok(plan.Workouts);
+
+            return Forbid();
         }
 
-
         // -------------------- POST: api/trainingplans/{id}/add-workouts --------------------
-        // Pridėti treniruotes į savo planą
         [Authorize]
         [HttpPost("{id}/add-workouts")]
         public async Task<IActionResult> AddWorkouts(int id, [FromQuery] List<int> workoutIds)
@@ -263,9 +342,7 @@ namespace FitTrackAPI.Controllers
             return Ok(plan.Workouts);
         }
 
-
         // -------------------- DELETE: api/trainingplans/{id}/workouts/{workoutId} --------------------
-        // Pašalina treniruotę iš plano, bet jos neištrina iš DB
         [Authorize]
         [HttpDelete("{id}/workouts/{workoutId}")]
         public async Task<IActionResult> RemoveWorkout(int id, int workoutId)
@@ -295,6 +372,49 @@ namespace FitTrackAPI.Controllers
             await _context.SaveChangesAsync();
 
             return NoContent();
+        }
+
+        // -------------------- GET: api/trainingplans/top-rated --------------------
+        [AllowAnonymous]
+        [HttpGet("top-rated")]
+        public async Task<IActionResult> GetTopRatedPlans()
+        {
+            var plans = await _context.TrainingPlans
+                .Include(tp => tp.User)
+                .Where(tp => tp.IsPublic && tp.User != null && tp.User.Role == Role.Trainer)
+                .ToListAsync();
+
+            var ratings = await _context.Ratings.ToListAsync();
+
+            var result = plans
+                .Select(plan =>
+                {
+                    var planRatings = ratings
+                        .Where(r => r.TrainingPlanId == plan.Id)
+                        .Select(r => r.Score);
+
+                    double avg = planRatings.Any()
+                        ? Math.Round(planRatings.Average(), 2)
+                        : 0;
+
+                    return new
+                    {
+                        plan.Id,
+                        Name = plan.Name,
+                        Type = plan.Type,
+                        DurationWeeks = plan.DurationWeeks,
+                        Username = plan.Username,
+                        AverageRating = avg,
+                        RatingCount = planRatings.Count(),
+                        ImageUrl = plan.ImageUrl ?? "/trainingPlans/defaultTrainingPlan.jpg"
+                    };
+                })
+                .OrderByDescending(p => p.AverageRating)
+                .ThenByDescending(p => p.RatingCount)
+                .Take(6)
+                .ToList();
+
+            return Ok(result);
         }
     }
 }

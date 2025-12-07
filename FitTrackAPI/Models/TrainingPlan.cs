@@ -12,6 +12,9 @@ namespace FitTrackAPI.Models
         public bool IsPublic { get; set; }
         public bool IsApproved { get; set; }
 
+        // Naujas laukas
+        public string? ImageUrl { get; set; } // ← galima null
+
         // Owner
         [ForeignKey(nameof(User))]
         public required string Username { get; set; }

@@ -86,6 +86,12 @@ namespace FitTrackAPI.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<int?>("ExerciseTemplateId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ImageUrl")
+                        .HasColumnType("text");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("text");
@@ -105,9 +111,75 @@ namespace FitTrackAPI.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("ExerciseTemplateId");
+
                     b.HasIndex("Username");
 
                     b.ToTable("Exercises");
+                });
+
+            modelBuilder.Entity("FitTrackAPI.Models.ExerciseTemplate", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("CommonMistakes")
+                        .HasColumnType("text");
+
+                    b.Property<int>("Difficulty")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Equipment")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ExecutionSteps")
+                        .HasColumnType("text");
+
+                    b.Property<string>("HowToImageUrl")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ImageUrl")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("Mechanics")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("MusclesImageUrl")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("PrimaryMuscles")
+                        .HasColumnType("text");
+
+                    b.Property<string>("SecondaryMuscles")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ShortDescription")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Tips")
+                        .HasColumnType("text");
+
+                    b.Property<int>("Type")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("VideoUrl")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("ExerciseTemplates");
                 });
 
             modelBuilder.Entity("FitTrackAPI.Models.TrainingPlan", b =>
@@ -120,6 +192,9 @@ namespace FitTrackAPI.Migrations
 
                     b.Property<int>("DurationWeeks")
                         .HasColumnType("integer");
+
+                    b.Property<string>("ImageUrl")
+                        .HasColumnType("text");
 
                     b.Property<bool>("IsApproved")
                         .HasColumnType("boolean");
@@ -190,9 +265,15 @@ namespace FitTrackAPI.Migrations
                     b.Property<int>("DurationMinutes")
                         .HasColumnType("integer");
 
-                    b.Property<string>("Type")
+                    b.Property<string>("ImageUrl")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<int>("Type")
+                        .HasColumnType("integer");
 
                     b.Property<string>("Username")
                         .IsRequired()
@@ -216,12 +297,15 @@ namespace FitTrackAPI.Migrations
                     b.Property<int>("Score")
                         .HasColumnType("integer");
 
-                    b.Property<int>("TrainingPlanId")
+                    b.Property<int?>("TrainingPlanId")
                         .HasColumnType("integer");
 
                     b.Property<string>("Username")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<int?>("WorkoutId")
+                        .HasColumnType("integer");
 
                     b.HasKey("Id");
 
@@ -321,11 +405,18 @@ namespace FitTrackAPI.Migrations
 
             modelBuilder.Entity("FitTrackAPI.Models.Exercise", b =>
                 {
+                    b.HasOne("FitTrackAPI.Models.ExerciseTemplate", "ExerciseTemplate")
+                        .WithMany("Exercises")
+                        .HasForeignKey("ExerciseTemplateId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("FitTrackAPI.Models.User", "User")
                         .WithMany()
                         .HasForeignKey("Username")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.Navigation("ExerciseTemplate");
 
                     b.Navigation("User");
                 });
@@ -406,6 +497,11 @@ namespace FitTrackAPI.Migrations
                         .HasForeignKey("WorkoutsId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("FitTrackAPI.Models.ExerciseTemplate", b =>
+                {
+                    b.Navigation("Exercises");
                 });
 
             modelBuilder.Entity("FitTrackAPI.Models.User", b =>

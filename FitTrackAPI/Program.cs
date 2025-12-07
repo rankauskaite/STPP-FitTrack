@@ -17,22 +17,22 @@ builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("JwtSet
 // ---------------------------------------------
 // 2. DATABASE
 // ---------------------------------------------
-// builder.Services.AddDbContext<FitTrackDbContext>(options =>
-//     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+builder.Services.AddDbContext<FitTrackDbContext>(options =>
+    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+// var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 
-if (string.IsNullOrEmpty(connectionString) || connectionString.Contains("localhost"))
-{
-    // Azure – naudok InMemory DB (nemokama)
-    builder.Services.AddDbContext<FitTrackDbContext>(options =>
-        options.UseInMemoryDatabase("FitTrackDB_InMemory"));
-}
-else
-{
-    // Vietinis paleidimas su PostgreSQL
-    builder.Services.AddDbContext<FitTrackDbContext>(options =>
-        options.UseNpgsql(connectionString));
-}
+// if (string.IsNullOrEmpty(connectionString) || connectionString.Contains("localhost"))
+// {
+//     // Azure – naudok InMemory DB (nemokama)
+//     builder.Services.AddDbContext<FitTrackDbContext>(options =>
+//         options.UseInMemoryDatabase("FitTrackDB_InMemory"));
+// }
+// else
+// {
+//     // Vietinis paleidimas su PostgreSQL
+//     builder.Services.AddDbContext<FitTrackDbContext>(options =>
+//         options.UseNpgsql(connectionString));
+// }
 
 
 // ---------------------------------------------
@@ -42,6 +42,20 @@ builder.Services.AddScoped<JwtTokenService>();
 builder.Services.AddScoped<PasswordService>();
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
+
+// ---------------------------------------------
+// 3.5 CORS
+// ---------------------------------------------
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowUI", policy =>
+    {
+        policy
+            .AllowAnyHeader()
+            .AllowAnyMethod()
+            .WithOrigins("http://localhost:3000"); // UI adresas
+    });
+});
 
 // ✅ Swagger su JWT autorizacija
 builder.Services.AddSwaggerGen(c =>
@@ -136,6 +150,8 @@ app.UseSwaggerUI();
 
 
 app.UseHttpsRedirection();
+
+app.UseCors("AllowUI");
 
 app.UseAuthentication();   // SVARBU: turi eiti prieš Authorization
 app.UseAuthorization();

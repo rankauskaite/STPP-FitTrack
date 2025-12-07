@@ -107,6 +107,7 @@ namespace FitTrackAPI.Migrations
                     Type = table.Column<string>(type: "text", nullable: false),
                     IsPublic = table.Column<bool>(type: "boolean", nullable: false),
                     IsApproved = table.Column<bool>(type: "boolean", nullable: false),
+                    ImageUrl = table.Column<string>(type: "text", nullable: true),
                     Username = table.Column<string>(type: "text", nullable: false)
                 },
                 constraints: table =>
@@ -126,10 +127,12 @@ namespace FitTrackAPI.Migrations
                 {
                     Id = table.Column<int>(type: "integer", nullable: false)
                         .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    Name = table.Column<string>(type: "text", nullable: false),
                     Date = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    Type = table.Column<string>(type: "text", nullable: false),
+                    Type = table.Column<int>(type: "integer", nullable: false),
                     DurationMinutes = table.Column<int>(type: "integer", nullable: false),
                     CaloriesBurned = table.Column<int>(type: "integer", nullable: false),
+                    ImageUrl = table.Column<string>(type: "text", nullable: true),
                     Username = table.Column<string>(type: "text", nullable: false)
                 },
                 constraints: table =>

@@ -4,9 +4,32 @@ using Microsoft.EntityFrameworkCore;
 using FitTrackAPI.Data;
 using FitTrackAPI.Models;
 using System.Security.Claims;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace FitTrackAPI.Controllers
 {
+    // ---- DTO'AI reitingams už treniruotes ----
+    public class RateWorkoutRequest
+    {
+        public int Score { get; set; } // 1–5
+    }
+
+    public class WorkoutRatingSummary
+    {
+        public double? AverageScore { get; set; }
+        public int RatingsCount { get; set; }
+        public int? UserScore { get; set; }
+    }
+
+    public class TrainingPlanRatingSummary
+    {
+        public double? AverageScore { get; set; }
+        public int RatingsCount { get; set; }
+        public int? UserScore { get; set; }
+    }
+
     [Route("api/[controller]")]
     [ApiController]
     public class RatingsController : ControllerBase
@@ -14,10 +37,10 @@ namespace FitTrackAPI.Controllers
         private readonly FitTrackDbContext _context;
         public RatingsController(FitTrackDbContext context) => _context = context;
 
-        // -------------------- Pagalbiniai metodai --------------------
         private string? GetCurrentUsername()
         {
-            return User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            return User.FindFirst("username")?.Value
+                ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value
                 ?? User.FindFirst("unique_name")?.Value
                 ?? User.FindFirst("sub")?.Value;
         }
@@ -26,9 +49,18 @@ namespace FitTrackAPI.Controllers
         private bool IsAdmin() => GetCurrentUserRole() == "Admin";
         private bool IsTrainer() => GetCurrentUserRole() == "Trainer";
 
+        private async Task<User?> GetCurrentUserWithClients()
+        {
+            var username = GetCurrentUsername();
+            if (username == null) return null;
+
+            return await _context.Users
+                .Include(u => u.Clients)
+                .FirstOrDefaultAsync(u => u.Username == username);
+        }
 
         // -------------------- POST: api/ratings --------------------
-        [Authorize(Roles = "Member,Trainer,Admin")]
+        [Authorize]
         [HttpPost]
         public async Task<IActionResult> AddRating([FromBody] Rating rating)
         {
@@ -47,7 +79,6 @@ namespace FitTrackAPI.Controllers
 
             bool canRate = false;
 
-            // Patikrinam, ar vertina planą
             if (rating.TrainingPlanId != 0)
             {
                 var plan = await _context.TrainingPlans
@@ -75,7 +106,6 @@ namespace FitTrackAPI.Controllers
 
             rating.Username = username;
 
-            // Jeigu jau vertino – atnaujina
             var existing = await _context.Ratings.FirstOrDefaultAsync(r =>
                 r.Username == rating.Username && r.TrainingPlanId == rating.TrainingPlanId);
 
@@ -89,12 +119,11 @@ namespace FitTrackAPI.Controllers
             _context.Ratings.Add(rating);
             await _context.SaveChangesAsync();
 
-            return CreatedAtAction(nameof(GetByPlan), new { planId = rating.TrainingPlanId }, rating);
+            return CreatedAtAction(nameof(GetTrainingPlanRating), new { planId = rating.TrainingPlanId }, rating);
         }
 
-
         // -------------------- PUT: api/ratings/{id} --------------------
-        [Authorize(Roles = "Member,Trainer,Admin")]
+        [Authorize]
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(int id, [FromBody] Rating updated)
         {
@@ -118,9 +147,8 @@ namespace FitTrackAPI.Controllers
             return Ok(rating);
         }
 
-
         // -------------------- DELETE: api/ratings/{id} --------------------
-        [Authorize(Roles = "Member,Trainer,Admin")]
+        [Authorize]
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(int id)
         {
@@ -144,15 +172,14 @@ namespace FitTrackAPI.Controllers
             return NoContent();
         }
 
-
-        // -------------------- GET: api/ratings/plan/{planId} --------------------
+        // -------------------- GET: api/trainingplans/{id}/rating --------------------
         [AllowAnonymous]
-        [HttpGet("plan/{planId}")]
-        public async Task<ActionResult<IEnumerable<Rating>>> GetByPlan(int planId)
+        [HttpGet("/api/trainingplans/{id}/rating")]
+        public async Task<ActionResult<TrainingPlanRatingSummary>> GetTrainingPlanRating(int id)
         {
             var plan = await _context.TrainingPlans
                 .Include(tp => tp.User)
-                .FirstOrDefaultAsync(tp => tp.Id == planId);
+                .FirstOrDefaultAsync(tp => tp.Id == id);
 
             if (plan == null)
                 return NotFound("Planas nerastas.");
@@ -165,19 +192,56 @@ namespace FitTrackAPI.Controllers
                 if (!plan.IsPublic || plan.User == null || plan.User.Role != Role.Trainer)
                     return Forbid();
             }
+            else
+            {
+                if (IsAdmin() || username == plan.Username)
+                {
+                    // ok
+                }
+                else if (plan.IsPublic && plan.User != null && plan.User.Role == Role.Trainer)
+                {
+                    // viešas trenerio planas
+                }
+                else if (IsTrainer())
+                {
+                    var currentUser = await GetCurrentUserWithClients();
+                    if (currentUser == null ||
+                        !currentUser.Clients.Any(c => c.Username == plan.Username))
+                    {
+                        return Forbid();
+                    }
+                }
+                else
+                {
+                    return Forbid();
+                }
+            }
 
-            if (!IsAdmin() && username != plan.Username && !plan.IsPublic &&
-                (plan.User == null || plan.User.Role != Role.Trainer))
-                return Forbid();
+            var ratingsQuery = _context.Ratings.Where(r => r.TrainingPlanId == id);
 
-            var ratings = await _context.Ratings
-                .Include(r => r.User)
-                .Where(r => r.TrainingPlanId == planId)
-                .ToListAsync();
+            var ratingsCount = await ratingsQuery.CountAsync();
+            double? avg = ratingsCount == 0
+                ? (double?)null
+                : await ratingsQuery.AverageAsync(r => r.Score);
 
-            return Ok(ratings);
+            int? userScore = null;
+            if (!string.IsNullOrEmpty(username))
+            {
+                userScore = await ratingsQuery
+                    .Where(r => r.Username == username)
+                    .Select(r => (int?)r.Score)
+                    .FirstOrDefaultAsync();
+            }
+
+            var result = new TrainingPlanRatingSummary
+            {
+                AverageScore = avg,
+                RatingsCount = ratingsCount,
+                UserScore = userScore
+            };
+
+            return Ok(result);
         }
-
 
         // -------------------- GET: api/ratings/average/plan/{planId} --------------------
         [AllowAnonymous]
@@ -203,7 +267,122 @@ namespace FitTrackAPI.Controllers
                 .Where(r => r.TrainingPlanId == planId)
                 .AverageAsync(r => (double?)r.Score) ?? 0;
 
-            return Ok(Math.Round(avg, 2));
+            return Ok(System.Math.Round(avg, 2));
+        }
+
+        // =====================================================================
+        //             R A T I N G A I   U Ž   T R E N I R U O T E S
+        // =====================================================================
+
+        // GET: api/workouts/{id}/rating
+        [AllowAnonymous]
+        [HttpGet("/api/workouts/{id}/rating")]
+        public async Task<ActionResult<WorkoutRatingSummary>> GetWorkoutRating(int id)
+        {
+            var workout = await _context.Workouts
+                                        .Include(w => w.User)
+                                        .FirstOrDefaultAsync(w => w.Id == id);
+
+            if (workout == null)
+                return NotFound("Treniruotė nerasta.");
+
+            // ❌ NEBEdarom BadRequest, jeigu ne trenerio treniruotė
+            // Tiesiog parodysim tuščią suvestinę (0 įvertinimų)
+
+            var ratingsQuery = _context.Ratings.Where(r => r.WorkoutId == id);
+
+            var ratingsCount = await ratingsQuery.CountAsync();
+            double? avg = ratingsCount == 0
+                ? (double?)null
+                : await ratingsQuery.AverageAsync(r => r.Score);
+
+            int? userScore = null;
+            var username = GetCurrentUsername();
+            if (!string.IsNullOrEmpty(username))
+            {
+                userScore = await ratingsQuery
+                    .Where(r => r.Username == username)
+                    .Select(r => (int?)r.Score)
+                    .FirstOrDefaultAsync();
+            }
+
+            var result = new WorkoutRatingSummary
+            {
+                AverageScore = avg,
+                RatingsCount = ratingsCount,
+                UserScore = userScore
+            };
+
+            return Ok(result);
+        }
+
+        // POST: api/workouts/{id}/rating
+        [Authorize]
+        [HttpPost("/api/workouts/{id}/rating")]
+        public async Task<ActionResult<WorkoutRatingSummary>> RateWorkout(int id, [FromBody] RateWorkoutRequest request)
+        {
+            var username = GetCurrentUsername();
+            if (username == null)
+                return Unauthorized();
+
+            if (request.Score < 1 || request.Score > 5)
+                return BadRequest("Įvertinimas turi būti tarp 1 ir 5.");
+
+            var workout = await _context.Workouts
+                                        .Include(w => w.User)
+                                        .FirstOrDefaultAsync(w => w.Id == id);
+
+            if (workout == null)
+                return NotFound("Treniruotė nerasta.");
+
+            if (workout.User?.Role != Role.Trainer)
+                return BadRequest("Vertinti galima tik trenerių treniruotes.");
+
+            if (workout.Username == username)
+                return BadRequest("Negali vertinti savo treniruotės.");
+
+            var existing = await _context.Ratings
+                .FirstOrDefaultAsync(r => r.WorkoutId == id && r.Username == username);
+
+            if (existing == null)
+            {
+                var rating = new Rating
+                {
+                    Username = username,
+                    WorkoutId = id,
+                    Score = request.Score
+                };
+                _context.Ratings.Add(rating);
+            }
+            else
+            {
+                existing.Score = request.Score;
+            }
+
+            await _context.SaveChangesAsync();
+
+            return await GetWorkoutRating(id);
+        }
+
+        // DELETE: api/workouts/{id}/rating
+        [Authorize]
+        [HttpDelete("/api/workouts/{id}/rating")]
+        public async Task<IActionResult> DeleteWorkoutRating(int id)
+        {
+            var username = GetCurrentUsername();
+            if (username == null)
+                return Unauthorized();
+
+            var rating = await _context.Ratings
+                .FirstOrDefaultAsync(r => r.WorkoutId == id && r.Username == username);
+
+            if (rating == null)
+                return NotFound("Dar nebuvai įvertinęs šios treniruotės.");
+
+            _context.Ratings.Remove(rating);
+            await _context.SaveChangesAsync();
+
+            return NoContent();
         }
     }
 }

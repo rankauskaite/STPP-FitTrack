@@ -6,10 +6,14 @@ namespace FitTrackAPI.Models
     public class Workout
     {
         public int Id { get; set; }
+        public string Name { get; set; } = null!;
         public DateTime Date { get; set; }
-        public string Type { get; set; } = null!;
+        public WorkoutType Type { get; set; }
         public int DurationMinutes { get; set; }
         public int CaloriesBurned { get; set; }
+
+        // Naujas laukas
+        public string? ImageUrl { get; set; } // ← galima null
 
         [ForeignKey(nameof(User))]
         public required string Username { get; set; }

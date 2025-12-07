@@ -13,6 +13,7 @@ namespace FitTrackAPI.Data
         public DbSet<Exercise> Exercises { get; set; }
         public DbSet<Comment> Comments { get; set; }
         public DbSet<Rating> Ratings { get; set; }
+        public DbSet<ExerciseTemplate> ExerciseTemplates { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -26,11 +27,22 @@ namespace FitTrackAPI.Data
             // 🔗 RELATIONSHIPS
             // -----------------------------------
 
+            modelBuilder.Entity<ExerciseTemplate>()
+                .Property(t => t.Category)
+                .HasConversion<string>();
+
             // Exercise ↔ Workout (many-to-many)
             modelBuilder.Entity<Exercise>()
                 .HasMany(e => e.Workouts)
                 .WithMany(w => w.Exercises)
                 .UsingEntity(j => j.ToTable("WorkoutExercises"));
+
+            // ExerciseTemplate ↔ Exercise (1-to-many)
+            modelBuilder.Entity<Exercise>()
+                .HasOne(e => e.ExerciseTemplate)
+                .WithMany(t => t.Exercises)
+                .HasForeignKey(e => e.ExerciseTemplateId)
+                .OnDelete(DeleteBehavior.SetNull);
 
             // Workout ↔ TrainingPlan (many-to-many)
             modelBuilder.Entity<Workout>()

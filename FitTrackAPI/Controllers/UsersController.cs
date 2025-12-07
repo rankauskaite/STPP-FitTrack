@@ -5,25 +5,50 @@ using FitTrackAPI.Data;
 using FitTrackAPI.Models;
 using FitTrackAPI.Services;
 using System.Security.Claims;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace FitTrackAPI.Controllers
 {
+    public class ClientTrainingPlanDto
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = null!;
+        public string Type { get; set; } = null!;
+        public int DurationWeeks { get; set; }
+        public bool IsPublic { get; set; }
+        public string? ImageUrl { get; set; }
+    }
+
+    public class ClientWithPlansDto
+    {
+        public string Username { get; set; } = null!;
+        public string? FullName { get; set; }
+        public string Role { get; set; } = null!;
+        public List<ClientTrainingPlanDto> TrainingPlans { get; set; } = new();
+    }
+
     [Route("api/[controller]")]
     [ApiController]
     public class UsersController : ControllerBase
     {
         private readonly FitTrackDbContext _context;
         private readonly PasswordService _passwordService;
+        private readonly JwtTokenService _tokenService;
 
-        public UsersController(FitTrackDbContext context, PasswordService passwordService)
+        public UsersController(FitTrackDbContext context, PasswordService passwordService, JwtTokenService tokenService)
         {
             _context = context;
             _passwordService = passwordService;
+            _tokenService = tokenService;
         }
 
         private string? GetCurrentUsername()
         {
-            return User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            return User.FindFirst("username")?.Value
+                ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                ?? User.FindFirst("unique_name")?.Value
                 ?? User.FindFirst("sub")?.Value;
         }
 
@@ -36,8 +61,20 @@ namespace FitTrackAPI.Controllers
         [HttpPost("register")]
         public async Task<IActionResult> Register([FromBody] RegisterRequest request)
         {
+            if (string.IsNullOrWhiteSpace(request.FullName))
+                return BadRequest(new { message = "Vardas negali būti tuščias." });
+
+            if (string.IsNullOrWhiteSpace(request.Username))
+                return BadRequest(new { message = "Slapyvardis negali būti tuščias" });
+
+            if (string.IsNullOrWhiteSpace(request.Password))
+                return BadRequest(new { message = "Slaptažodis negali būti tuščias." });
+
+            if (request.Password.Length < 4)
+                return BadRequest(new { message = "Slaptažodį turi sudaryti bent 4 simboliai." });
+
             if (await _context.Users.AnyAsync(u => u.Username == request.Username))
-                return BadRequest("Toks vartotojas jau egzistuoja.");
+                return BadRequest(new { message = "Jau egzistuoja toks naudotojas." });
 
             var user = new User
             {
@@ -47,10 +84,25 @@ namespace FitTrackAPI.Controllers
             };
 
             user.Password = _passwordService.HashPassword(user, request.Password);
+
             _context.Users.Add(user);
             await _context.SaveChangesAsync();
 
-            return Ok(new { message = "Registracija sėkminga", username = user.Username });
+            var accessToken = _tokenService.GenerateAccessToken(user);
+            var (refreshToken, refreshExpiry) = _tokenService.GenerateRefreshToken();
+
+            user.RefreshToken = refreshToken;
+            user.RefreshTokenExpiryTime = refreshExpiry;
+            await _context.SaveChangesAsync();
+
+            return Ok(new
+            {
+                message = "Registracija sėkminga.",
+                accessToken,
+                refreshToken,
+                role = user.Role.ToString(),
+                username = user.Username
+            });
         }
 
         public class RegisterRequest
@@ -99,17 +151,17 @@ namespace FitTrackAPI.Controllers
             var currentUsername = GetCurrentUsername();
             if (currentUsername == null) return Unauthorized();
 
-            var currentUser = await _context.Users.Include(u => u.Clients)
+            var currentUser = await _context.Users
+                .Include(u => u.Clients)
                 .FirstOrDefaultAsync(u => u.Username == currentUsername);
+
             if (currentUser == null) return Unauthorized();
 
             var targetUser = await _context.Users.FindAsync(username);
             if (targetUser == null) return NotFound("Vartotojas nerastas.");
 
-            // Admin gali matyti viską
             if (IsAdmin()) return Ok(targetUser);
 
-            // Vartotojas – gali matyti tik save ir trenerius
             if (currentUser.Role == Role.Member)
             {
                 if (targetUser.Username == currentUser.Username || targetUser.Role == Role.Trainer)
@@ -117,7 +169,6 @@ namespace FitTrackAPI.Controllers
                 return Forbid();
             }
 
-            // Treneris – gali matyti save, savo klientus ir kitus trenerius
             if (IsTrainer())
             {
                 if (targetUser.Username == currentUser.Username ||
@@ -149,7 +200,7 @@ namespace FitTrackAPI.Controllers
             if (!string.IsNullOrWhiteSpace(updatedUser.Password))
                 targetUser.Password = _passwordService.HashPassword(targetUser, updatedUser.Password);
 
-            if (IsAdmin()) // tik admin gali keisti roles
+            if (IsAdmin())
                 targetUser.Role = updatedUser.Role;
 
             await _context.SaveChangesAsync();
@@ -197,7 +248,6 @@ namespace FitTrackAPI.Controllers
             var currentUsername = GetCurrentUsername();
             if (currentUsername == null) return Unauthorized();
 
-            // Tik pats treneris arba admin gali pridėti klientą
             if (!IsAdmin() && currentUsername != trainerUsername)
                 return Forbid();
 
@@ -214,6 +264,131 @@ namespace FitTrackAPI.Controllers
 
             await _context.SaveChangesAsync();
             return Ok(new { message = "Klientas pridėtas sėkmingai." });
+        }
+
+        // -------------------- TRAINER / ADMIN: GAUTI KLIENTUS + JŲ PLANUS --------------------
+        [Authorize(Roles = "Trainer,Admin")]
+        [HttpGet("my-clients")]
+        public async Task<ActionResult<IEnumerable<ClientWithPlansDto>>> GetMyClients()
+        {
+            var currentUsername = GetCurrentUsername();
+            if (currentUsername == null) return Unauthorized();
+
+            if (IsAdmin())
+            {
+                var allUsers = await _context.Users
+                    .Include(u => u.TrainingPlans)
+                    .ToListAsync();
+
+                var allDtos = allUsers.Select(u => new ClientWithPlansDto
+                {
+                    Username = u.Username,
+                    FullName = u.FullName,
+                    Role = u.Role.ToString(),
+                    TrainingPlans = u.TrainingPlans.Select(tp => new ClientTrainingPlanDto
+                    {
+                        Id = tp.Id,
+                        Name = tp.Name,
+                        Type = tp.Type,
+                        DurationWeeks = tp.DurationWeeks,
+                        IsPublic = tp.IsPublic,
+                        ImageUrl = tp.ImageUrl
+                    }).ToList()
+                }).ToList();
+
+                return Ok(allDtos);
+            }
+
+            var trainer = await _context.Users
+                .Include(u => u.Clients)
+                .FirstOrDefaultAsync(u => u.Username == currentUsername);
+
+            if (trainer == null) return Unauthorized();
+
+            var clientUsernames = trainer.Clients.Select(c => c.Username).ToList();
+
+            var clients = await _context.Users
+                .Where(u => clientUsernames.Contains(u.Username))
+                .Include(u => u.TrainingPlans)
+                .ToListAsync();
+
+            var dtos = clients.Select(u => new ClientWithPlansDto
+            {
+                Username = u.Username,
+                FullName = u.FullName,
+                Role = u.Role.ToString(),
+                TrainingPlans = u.TrainingPlans.Select(tp => new ClientTrainingPlanDto
+                {
+                    Id = tp.Id,
+                    Name = tp.Name,
+                    Type = tp.Type,
+                    DurationWeeks = tp.DurationWeeks,
+                    IsPublic = tp.IsPublic,
+                    ImageUrl = tp.ImageUrl
+                }).ToList()
+            }).ToList();
+
+            return Ok(dtos);
+        }
+
+        // -------------------- TRAINER: PAŠALINTI KLIENTĄ --------------------
+        [Authorize(Roles = "Trainer,Admin")]
+        [HttpDelete("{trainerUsername}/remove-client/{clientUsername}")]
+        public async Task<IActionResult> RemoveClient(string trainerUsername, string clientUsername)
+        {
+            var currentUsername = GetCurrentUsername();
+            if (currentUsername == null) return Unauthorized();
+
+            if (!IsAdmin() && currentUsername != trainerUsername)
+                return Forbid();
+
+            var trainer = await _context.Users
+                .Include(u => u.Clients)
+                .FirstOrDefaultAsync(u => u.Username == trainerUsername);
+
+            if (trainer == null)
+                return NotFound("Treneris nerastas.");
+
+            var client = trainer.Clients.FirstOrDefault(c => c.Username == clientUsername);
+            if (client == null)
+                return NotFound("Toks klientas nepriskirtas šiam treneriui.");
+
+            trainer.Clients.Remove(client);
+            await _context.SaveChangesAsync();
+
+            return NoContent();
+        }
+
+        // -------------------- TRAINER: PAIEŠKA KLIENTŲ PAGAL SLAPYVARDĮ --------------------
+        [Authorize(Roles = "Trainer,Admin")]
+        [HttpGet("search")]
+        public async Task<ActionResult<IEnumerable<object>>> SearchClients([FromQuery] string query)
+        {
+            var currentUsername = GetCurrentUsername();
+            if (currentUsername == null) return Unauthorized();
+
+            if (string.IsNullOrWhiteSpace(query) || query.Trim().Length < 2)
+                return Ok(new List<object>());
+
+            query = query.Trim().ToLower();
+
+            var usersQuery = _context.Users
+                .Where(u => u.Role == Role.Member &&
+                            (u.Username.ToLower().Contains(query) ||
+                             (u.FullName != null && u.FullName.ToLower().Contains(query))))
+                .OrderBy(u => u.Username)
+                .Take(10);
+
+            var result = await usersQuery
+                .Select(u => new
+                {
+                    username = u.Username,
+                    fullName = u.FullName,
+                    role = u.Role.ToString()
+                })
+                .ToListAsync();
+
+            return Ok(result);
         }
     }
 }

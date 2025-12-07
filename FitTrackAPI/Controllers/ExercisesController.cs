@@ -7,6 +7,23 @@ using System.Security.Claims;
 
 namespace FitTrackAPI.Controllers
 {
+    public class CreateExerciseRequest
+    {
+        public int? ExerciseTemplateId { get; set; }   // jei pasirinko default
+        public string? Name { get; set; }              // jei kuria savo
+        public int Sets { get; set; }
+        public int Reps { get; set; }
+        public double Weight { get; set; }
+    }
+
+    public class UpdateExerciseRequest
+    {
+        public string Name { get; set; } = null!;
+        public int Sets { get; set; }
+        public int Reps { get; set; }
+        public double Weight { get; set; }
+    }
+
     [ApiController]
     [Route("api/[controller]")]
     public class ExercisesController : ControllerBase
@@ -21,7 +38,8 @@ namespace FitTrackAPI.Controllers
         // -------------------- Pagalbiniai metodai --------------------
         private string? GetCurrentUsername()
         {
-            return User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            return User.FindFirst("username")?.Value   // ← TIKRAS claim
+                ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value
                 ?? User.FindFirst("unique_name")?.Value
                 ?? User.FindFirst("sub")?.Value;
         }
@@ -30,9 +48,21 @@ namespace FitTrackAPI.Controllers
         private bool IsAdmin() => GetCurrentUserRole() == "Admin";
         private bool IsTrainer() => GetCurrentUserRole() == "Trainer";
 
+        // 🔹 NAUJA: prisijungęs user su klientais
+        private async Task<User?> GetCurrentUserWithClients()
+        {
+            var username = GetCurrentUsername();
+            if (username == null) return null;
+
+            return await _context.Users
+                .Include(u => u.Clients)
+                .FirstOrDefaultAsync(u => u.Username == username);
+        }
 
         // -------------------- GET: api/exercises --------------------
-        // Svečias mato tik trenerių pratimus, prisijungęs – savo + trenerių
+        // Svečias: tik trenerių
+        // Member: savo + trenerių
+        // Treneris: savo + trenerių + savo klientų
         [AllowAnonymous]
         [HttpGet]
         public async Task<ActionResult<IEnumerable<Exercise>>> GetAll()
@@ -48,20 +78,38 @@ namespace FitTrackAPI.Controllers
             if (!isAuthenticated)
             {
                 // Svečias – tik trenerių pratimus
-                return await query.Where(e => e.User != null && e.User.Role == Role.Trainer).ToListAsync();
+                return await query
+                    .Where(e => e.User != null && e.User.Role == Role.Trainer)
+                    .ToListAsync();
             }
 
-            // Prisijungęs vartotojas
             if (IsAdmin())
                 return await query.ToListAsync();
 
             if (IsTrainer())
-                return await query.Where(e => (e.User != null && e.User.Role == Role.Trainer) || e.Username == username).ToListAsync();
+            {
+                var currentUser = await GetCurrentUserWithClients();
+                var clientUsernames = currentUser?.Clients.Select(c => c.Username).ToList()
+                                      ?? new List<string>();
+
+                return await query
+                    .Where(e =>
+                        // savo pratimai
+                        e.Username == username
+                        // trenerių pratimai
+                        || (e.User != null && e.User.Role == Role.Trainer)
+                        // klientų pratimai
+                        || clientUsernames.Contains(e.Username))
+                    .ToListAsync();
+            }
 
             // Member – savo ir trenerių
-            return await query.Where(e => e.Username == username || (e.User != null && e.User.Role == Role.Trainer)).ToListAsync();
+            return await query
+                .Where(e =>
+                    e.Username == username
+                    || (e.User != null && e.User.Role == Role.Trainer))
+                .ToListAsync();
         }
-
 
         // -------------------- GET: api/exercises/{id} --------------------
         [AllowAnonymous]
@@ -71,6 +119,7 @@ namespace FitTrackAPI.Controllers
             var exercise = await _context.Exercises
                                          .Include(e => e.User)
                                          .Include(e => e.Workouts)
+                                         .Include(e => e.ExerciseTemplate)
                                          .FirstOrDefaultAsync(e => e.Id == id);
 
             if (exercise == null)
@@ -84,35 +133,84 @@ namespace FitTrackAPI.Controllers
                 // svečias – tik trenerių
                 if (exercise.User == null || exercise.User.Role != Role.Trainer)
                     return Forbid();
-            }
-            else if (!IsAdmin() && exercise.Username != username && (exercise.User == null || exercise.User.Role != Role.Trainer))
-            {
-                // Prisijungęs – tik savo ar trenerių
-                return Forbid();
+
+                return Ok(exercise);
             }
 
-            return Ok(exercise);
+            if (IsAdmin())
+                return Ok(exercise);
+
+            // savo pratimas
+            if (exercise.Username == username)
+                return Ok(exercise);
+
+            // trenerio pratimas
+            if (exercise.User?.Role == Role.Trainer)
+                return Ok(exercise);
+
+            // treneris – gali matyti savo kliento pratimą
+            if (IsTrainer())
+            {
+                var currentUser = await GetCurrentUserWithClients();
+                if (currentUser != null &&
+                    currentUser.Clients.Any(c => c.Username == exercise.Username))
+                {
+                    return Ok(exercise);
+                }
+            }
+
+            return Forbid();
         }
 
-
         // -------------------- POST: api/exercises --------------------
-        // Kurti gali bet kuris prisijungęs
         [Authorize]
         [HttpPost]
-        public async Task<ActionResult<Exercise>> Create([FromBody] Exercise exercise, [FromQuery] List<int>? workoutIds)
+        public async Task<ActionResult<Exercise>> Create(
+            [FromBody] CreateExerciseRequest request,
+            [FromQuery] List<int>? workoutIds)
         {
             var username = GetCurrentUsername();
             if (username == null) return Unauthorized();
 
-            exercise.Username = username;
-            exercise.Workouts = new List<Workout>();
+            var exercise = new Exercise
+            {
+                Username = username,
+                Sets = request.Sets,
+                Reps = request.Reps,
+                Weight = request.Weight,
+                Workouts = new List<Workout>()
+            };
+
+            // 1) Jeigu pasirinko šabloną
+            if (request.ExerciseTemplateId.HasValue)
+            {
+                var template = await _context.ExerciseTemplates
+                    .FirstOrDefaultAsync(t => t.Id == request.ExerciseTemplateId.Value);
+
+                if (template == null)
+                    return BadRequest("Neteisingas pratimo šablonas.");
+
+                exercise.ExerciseTemplateId = template.Id;
+                exercise.Name = template.Name;
+                exercise.ImageUrl = template.ImageUrl;
+            }
+            else
+            {
+                // 2) Custom pratimas – turi būti pavadinimas
+                if (string.IsNullOrWhiteSpace(request.Name))
+                    return BadRequest("Nurodyk pratimo pavadinimą arba pasirink šabloną.");
+
+                exercise.Name = request.Name;
+                exercise.ImageUrl = "/exercises/custom-default.jpg";
+            }
 
             if (workoutIds != null)
             {
                 foreach (var wid in workoutIds)
                 {
                     var workout = await _context.Workouts.FindAsync(wid);
-                    if (workout != null) exercise.Workouts.Add(workout);
+                    if (workout != null)
+                        exercise.Workouts.Add(workout);
                 }
             }
 
@@ -122,19 +220,17 @@ namespace FitTrackAPI.Controllers
             return CreatedAtAction(nameof(Get), new { id = exercise.Id }, exercise);
         }
 
-
         // -------------------- PUT: api/exercises/{id} --------------------
-        // Redaguoti gali tik savo pratimus, admin – tik savo
         [Authorize]
         [HttpPut("{id}")]
-        public async Task<IActionResult> Update(int id, [FromBody] Exercise updatedExercise, [FromQuery] List<int>? workoutIds)
+        public async Task<IActionResult> Update(
+            int id,
+            [FromBody] UpdateExerciseRequest request,
+            [FromQuery] List<int>? workoutIds)
         {
-            if (id != updatedExercise.Id)
-                return BadRequest("ID neatitinka esamo pratimo.");
-
             var existingExercise = await _context.Exercises
-                                                 .Include(e => e.Workouts)
-                                                 .FirstOrDefaultAsync(e => e.Id == id);
+                                                .Include(e => e.Workouts)
+                                                .FirstOrDefaultAsync(e => e.Id == id);
 
             if (existingExercise == null)
                 return NotFound("Pratimas nerastas.");
@@ -146,14 +242,18 @@ namespace FitTrackAPI.Controllers
             if (existingExercise.Username != username && !IsAdmin())
                 return Forbid();
 
-            // Admin gali redaguoti tik savo
             if (IsAdmin() && existingExercise.Username != username)
                 return Forbid();
 
-            existingExercise.Name = updatedExercise.Name;
-            existingExercise.Sets = updatedExercise.Sets;
-            existingExercise.Reps = updatedExercise.Reps;
-            existingExercise.Weight = updatedExercise.Weight;
+            // jei iš šablono – pavadinimo nekeičiam
+            if (!existingExercise.ExerciseTemplateId.HasValue)
+            {
+                existingExercise.Name = request.Name;
+            }
+
+            existingExercise.Sets = request.Sets;
+            existingExercise.Reps = request.Reps;
+            existingExercise.Weight = request.Weight;
 
             if (workoutIds != null)
             {
@@ -178,9 +278,7 @@ namespace FitTrackAPI.Controllers
             return Ok(existingExercise);
         }
 
-
         // -------------------- DELETE: api/exercises/{id} --------------------
-        // Trinti gali tik savo pratimus, admin – tik savo
         [Authorize]
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(int id)
@@ -205,9 +303,8 @@ namespace FitTrackAPI.Controllers
             return NoContent();
         }
 
-
         // -------------------- GET: api/exercises/byworkout/{workoutId} --------------------
-        // Prisijungęs mato savo ir trenerių pratimus pagal treniruotę
+        // (jei naudoji šitą endpoint'ą)
         [Authorize]
         [HttpGet("byworkout/{workoutId}")]
         public async Task<ActionResult<IEnumerable<Exercise>>> GetByWorkout(int workoutId)
@@ -224,11 +321,29 @@ namespace FitTrackAPI.Controllers
             if (workout == null)
                 return NotFound("Treniruotė nerasta.");
 
-            var visibleExercises = workout.Exercises
-                .Where(e => e.Username == username || (e.User != null && e.User.Role == Role.Trainer))
-                .ToList();
+            // panaši logika kaip WorkoutsController.GetExercises
+            if (IsAdmin() || workout.Username == username)
+                return Ok(workout.Exercises);
 
-            return Ok(visibleExercises);
+            if (IsTrainer())
+            {
+                var currentUser = await GetCurrentUserWithClients();
+                if (currentUser != null &&
+                    currentUser.Clients.Any(c => c.Username == workout.Username))
+                {
+                    return Ok(workout.Exercises);
+                }
+
+                // trenerio treniruotės atveju
+                if (workout.User?.Role == Role.Trainer)
+                    return Ok(workout.Exercises);
+            }
+
+            // Member – tik savo arba trenerio treniruotė
+            if (workout.User?.Role == Role.Trainer)
+                return Ok(workout.Exercises);
+
+            return Forbid();
         }
     }
 }

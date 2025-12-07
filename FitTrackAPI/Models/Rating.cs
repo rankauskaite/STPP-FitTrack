@@ -8,6 +8,7 @@ public class Rating
     [ForeignKey(nameof(User))]
     public required string Username { get; set; }
     public User? User { get; set; }
-    public int TrainingPlanId { get; set; }
+    public int? TrainingPlanId { get; set; }
+    public int? WorkoutId { get; set; }
     public int Score { get; set; } // 1–5
 }

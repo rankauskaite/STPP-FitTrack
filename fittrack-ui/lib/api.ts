@@ -1,6 +1,6 @@
 import { clearLocalAuth, refreshToken } from "./auth";
 
-export const API_URL = "http://localhost:5035";
+export const API_URL = "https://fittrackbackend-gkeshybrckhhe6dw.germanywestcentral-01.azurewebsites.net";
 
 export async function apiRequest(
   path: string,
